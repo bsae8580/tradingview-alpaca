@@ -39,6 +39,23 @@ if not all([ALPACA_API_KEY, ALPACA_SECRET_KEY, WEBHOOK_PASSPHRASE]):
     )
 
 # ──────────────────────────────────────────────
+# Crypto symbol map
+# TradingView sends BTCUSD, Alpaca needs BTC/USD
+# ──────────────────────────────────────────────
+CRYPTO_MAP = {
+    "BTCUSD":  "BTC/USD",
+    "ETHUSD":  "ETH/USD",
+    "SOLUSD":  "SOL/USD",
+    "DOGEUSD": "DOGE/USD",
+    "XRPUSD":  "XRP/USD",
+    "LTCUSD":  "LTC/USD",
+    "AVAXUSD": "AVAX/USD",
+    "LINKUSD": "LINK/USD",
+    "UNIUSD":  "UNI/USD",
+    "AAVEUSD": "AAVE/USD",
+}
+
+# ──────────────────────────────────────────────
 # Alpaca client
 # ──────────────────────────────────────────────
 client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=IS_PAPER)
@@ -46,6 +63,11 @@ client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=IS_PAPER)
 # ──────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────
+def normalize_symbol(symbol: str) -> str:
+    """Convert TradingView symbol format to Alpaca format."""
+    s = symbol.upper().strip()
+    return CRYPTO_MAP.get(s, s)
+
 def get_position(symbol: str):
     try:
         return client.get_open_position(symbol)
@@ -74,19 +96,8 @@ def cancel_open_orders(symbol: str):
 def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
                 limit_price: float = None, stop_price: float = None):
 
-    symbol = symbol.upper().strip()
-    crypto_map = {
-        "BTCUSD": "BTC/USD",
-        "ETHUSD": "ETH/USD",
-        "SOLUSD": "SOL/USD",
-        "DOGEUSD": "DOGE/USD",
-        "XRPUSD": "XRP/USD",
-        "LTCUSD": "LTC/USD",
-    }
-    if symbol in crypto_map:
-        symbol = crypto_map[symbol]
-
-    side = side.lower().strip()
+    symbol = normalize_symbol(symbol)
+    side   = side.lower().strip()
 
     if side not in ("buy", "sell"):
         raise ValueError(f"Invalid side '{side}'. Must be 'buy' or 'sell'.")
@@ -107,7 +118,7 @@ def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
     existing_position = get_position(symbol)
 
     if side == "buy" and existing_position:
-        log.info(f"Already holding {existing_position.qty} shares of {symbol}. Adding {qty} more.")
+        log.info(f"Already holding {existing_position.qty} of {symbol}. Adding {qty} more.")
 
     if side == "sell":
         if not existing_position:
@@ -125,14 +136,14 @@ def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
             symbol=symbol,
             qty=qty,
             side=order_side,
-            time_in_force=TimeInForce.DAY
+            time_in_force=TimeInForce.GTC
         )
     elif order_type == "limit":
         order_data = LimitOrderRequest(
             symbol=symbol,
             qty=qty,
             side=order_side,
-            time_in_force=TimeInForce.DAY,
+            time_in_force=TimeInForce.GTC,
             limit_price=limit_price
         )
     elif order_type == "stop":
@@ -140,7 +151,7 @@ def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
             symbol=symbol,
             qty=qty,
             side=order_side,
-            time_in_force=TimeInForce.DAY,
+            time_in_force=TimeInForce.GTC,
             stop_price=stop_price
         )
     elif order_type == "stop_limit":
@@ -148,7 +159,7 @@ def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
             symbol=symbol,
             qty=qty,
             side=order_side,
-            time_in_force=TimeInForce.DAY,
+            time_in_force=TimeInForce.GTC,
             limit_price=limit_price,
             stop_price=stop_price
         )
