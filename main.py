@@ -75,19 +75,18 @@ def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
                 limit_price: float = None, stop_price: float = None):
 
     symbol = symbol.upper().strip()
-# Convert TradingView crypto format to Alpaca format
-crypto_map = {
-    "BTCUSD": "BTC/USD",
-    "ETHUSD": "ETH/USD",
-    "SOLUSD": "SOL/USD",
-    "DOGEUSD": "DOGE/USD",
-    "XRPUSD": "XRP/USD",
-    "LTCUSD": "LTC/USD",
-}
-if symbol in crypto_map:
-    symbol = crypto_map[symbol]
+    crypto_map = {
+        "BTCUSD": "BTC/USD",
+        "ETHUSD": "ETH/USD",
+        "SOLUSD": "SOL/USD",
+        "DOGEUSD": "DOGE/USD",
+        "XRPUSD": "XRP/USD",
+        "LTCUSD": "LTC/USD",
+    }
+    if symbol in crypto_map:
+        symbol = crypto_map[symbol]
 
-    side   = side.lower().strip()
+    side = side.lower().strip()
 
     if side not in ("buy", "sell"):
         raise ValueError(f"Invalid side '{side}'. Must be 'buy' or 'sell'.")
