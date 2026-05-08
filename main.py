@@ -69,10 +69,13 @@ def normalize_symbol(symbol: str) -> str:
     return CRYPTO_MAP.get(s, s)
 
 def get_position(symbol: str):
+    """Get open position, returns None if flat. Handles crypto slash encoding."""
     try:
-        return client.get_open_position(symbol)
+        encoded = symbol.replace("/", "%2F")
+        return client.get_open_position(encoded)
     except Exception as e:
-        if "position does not exist" in str(e).lower():
+        err = str(e).lower()
+        if "position does not exist" in err or "not found" in err or "404" in err:
             return None
         raise
 
@@ -113,35 +116,53 @@ def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
 
     log.info(f"Account buying power: ${float(account.buying_power):,.2f}")
 
-    order_side = OrderSide.BUY if side == "buy" else OrderSide.SELL
-
+    # ── Always-in flip logic ──────────────────
+    # qty from alert = desired position size
+    # if already in opposite position, flip by trading 2x qty
     existing_position = get_position(symbol)
 
-    if side == "buy" and existing_position:
-        log.info(f"Already holding {existing_position.qty} of {symbol}. Adding {qty} more.")
+    if existing_position:
+        held_qty  = abs(float(existing_position.qty))
+        held_side = str(existing_position.side).lower()  # 'long' or 'short'
 
-    if side == "sell":
-        if not existing_position:
-            log.warning(f"No position in {symbol} to sell. Skipping.")
-            return None
-        held_qty = float(existing_position.qty)
-        if qty > held_qty:
-            log.warning(f"Sell qty ({qty}) > held ({held_qty}). Adjusting to full position.")
-            qty = held_qty
+        if side == "buy":
+            if "long" in held_side:
+                # Already long — just add more
+                order_qty = qty
+                log.info(f"Already LONG {held_qty} {symbol}. Adding {order_qty} more.")
+            else:
+                # Currently short — close short + open long
+                order_qty = held_qty + qty
+                log.info(f"Flipping SHORT {held_qty} → LONG {qty} {symbol}. Buying {order_qty}.")
+        else:  # sell
+            if "short" in held_side:
+                # Already short — just add more
+                order_qty = qty
+                log.info(f"Already SHORT {held_qty} {symbol}. Selling {order_qty} more.")
+            else:
+                # Currently long — close long + open short
+                order_qty = held_qty + qty
+                log.info(f"Flipping LONG {held_qty} → SHORT {qty} {symbol}. Selling {order_qty}.")
+    else:
+        # No position — just enter with target qty
+        order_qty = qty
+        log.info(f"No position in {symbol}. Entering {side.upper()} {order_qty}.")
 
     cancel_open_orders(symbol)
+
+    order_side = OrderSide.BUY if side == "buy" else OrderSide.SELL
 
     if order_type == "market":
         order_data = MarketOrderRequest(
             symbol=symbol,
-            qty=qty,
+            qty=order_qty,
             side=order_side,
             time_in_force=TimeInForce.GTC
         )
     elif order_type == "limit":
         order_data = LimitOrderRequest(
             symbol=symbol,
-            qty=qty,
+            qty=order_qty,
             side=order_side,
             time_in_force=TimeInForce.GTC,
             limit_price=limit_price
@@ -149,7 +170,7 @@ def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
     elif order_type == "stop":
         order_data = StopOrderRequest(
             symbol=symbol,
-            qty=qty,
+            qty=order_qty,
             side=order_side,
             time_in_force=TimeInForce.GTC,
             stop_price=stop_price
@@ -157,7 +178,7 @@ def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
     elif order_type == "stop_limit":
         order_data = StopLimitOrderRequest(
             symbol=symbol,
-            qty=qty,
+            qty=order_qty,
             side=order_side,
             time_in_force=TimeInForce.GTC,
             limit_price=limit_price,
@@ -167,7 +188,7 @@ def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
         raise ValueError(f"Unknown order_type: {order_type}")
 
     order = client.submit_order(order_data)
-    log.info(f"✅ Order submitted | id={order.id} | {side.upper()} {qty}x {symbol} @ {order_type} | status={order.status}")
+    log.info(f"✅ Order submitted | id={order.id} | {side.upper()} {order_qty}x {symbol} @ {order_type} | status={order.status}")
     return order
 
 # ──────────────────────────────────────────────
