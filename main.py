@@ -95,6 +95,8 @@ def cancel_open_orders(symbol: str):
 
 # ──────────────────────────────────────────────
 # Order logic
+# Option A: Buy = enter long, Sell = close long and go flat
+# No shorting ever
 # ──────────────────────────────────────────────
 def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
                 limit_price: float = None, stop_price: float = None):
@@ -116,37 +118,24 @@ def place_order(symbol: str, side: str, qty: float, order_type: str = "market",
 
     log.info(f"Account buying power: ${float(account.buying_power):,.2f}")
 
-    # ── Always-in flip logic ──────────────────
-    # qty from alert = desired position size
-    # if already in opposite position, flip by trading 2x qty
     existing_position = get_position(symbol)
 
-    if existing_position:
-        held_qty  = abs(float(existing_position.qty))
-        held_side = str(existing_position.side).lower()  # 'long' or 'short'
-
-        if side == "buy":
-            if "long" in held_side:
-                # Already long — just add more
-                order_qty = qty
-                log.info(f"Already LONG {held_qty} {symbol}. Adding {order_qty} more.")
-            else:
-                # Currently short — close short + open long
-                order_qty = held_qty + qty
-                log.info(f"Flipping SHORT {held_qty} → LONG {qty} {symbol}. Buying {order_qty}.")
-        else:  # sell
-            if "short" in held_side:
-                # Already short — just add more
-                order_qty = qty
-                log.info(f"Already SHORT {held_qty} {symbol}. Selling {order_qty} more.")
-            else:
-                # Currently long — close long + open short
-                order_qty = held_qty + qty
-                log.info(f"Flipping LONG {held_qty} → SHORT {qty} {symbol}. Selling {order_qty}.")
-    else:
-        # No position — just enter with target qty
+    # ── BUY logic ─────────────────────────────
+    if side == "buy":
+        if existing_position and "long" in str(existing_position.side).lower():
+            log.info(f"Already LONG {existing_position.qty} {symbol}. Skipping buy.")
+            return None
         order_qty = qty
-        log.info(f"No position in {symbol}. Entering {side.upper()} {order_qty}.")
+        log.info(f"Entering LONG {order_qty} {symbol}.")
+
+    # ── SELL logic — close only, no shorting ──
+    else:
+        if not existing_position:
+            log.warning(f"No position in {symbol} to sell. Skipping.")
+            return None
+        # Always sell the full position regardless of qty in alert
+        order_qty = abs(float(existing_position.qty))
+        log.info(f"Closing LONG {order_qty} {symbol}. Going flat.")
 
     cancel_open_orders(symbol)
 
@@ -249,7 +238,7 @@ async def webhook(request: Request):
         )
 
         if order is None:
-            return JSONResponse({"status": "skipped", "reason": "no position to sell"})
+            return JSONResponse({"status": "skipped", "reason": "no position or already in correct direction"})
 
         return JSONResponse({
             "status"      : "order_submitted",
